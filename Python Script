@@ -1,0 +1,76 @@
+import requests
+from bs4 import BeautifulSoup
+import re
+import csv
+import json
+import sys
+
+def is_valid_wiki_link(url):
+    return re.match(r'^https?://(?:\w+\.)?wikipedia\.org/wiki/[^#]*$', url)
+
+def get_wiki_links(url, visited):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    links = set()
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href']
+        if re.match(r'^/wiki/[^:]*$', href):  # Exclude links with colons to avoid non-article pages
+            full_url = f'https://en.wikipedia.org{href}'
+            if full_url not in visited:
+                links.add(full_url)
+        if len(links) >= 10:
+            break
+    return links
+
+def scrape_wiki(start_url, cycles):
+    if not is_valid_wiki_link(start_url):
+        raise ValueError("Invalid Wikipedia link.")
+    if not (1 <= cycles <= 3):
+        raise ValueError("The integer n must be between 1 and 3.")
+
+    visited = set()
+    to_visit = {start_url}
+    all_links = []
+
+    for _ in range(cycles):
+        next_to_visit = set()
+        for url in to_visit:
+            if url not in visited:
+                visited.add(url)
+                new_links = get_wiki_links(url, visited)
+                all_links.extend(new_links)
+                next_to_visit.update(new_links)
+        to_visit = next_to_visit
+
+    return all_links
+
+def write_to_file(data, filename, filetype='csv'):
+    if filetype == 'csv':
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Link'])
+            for link in data:
+                writer.writerow([link])
+    elif filetype == 'json':
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    else:
+        raise ValueError("Unsupported file type. Use 'csv' or 'json'.")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Usage: python script.py <Wikipedia URL> <Number of Cycles (1-3)> <Output Filename>")
+        sys.exit(1)
+    
+    start_url = sys.argv[1]
+    cycles = int(sys.argv[2])
+    output_filename = sys.argv[3]
+    output_filetype = 'csv' if output_filename.endswith('.csv') else 'json'
+
+    try:
+        result_links = scrape_wiki(start_url, cycles)
+        print(f"Found {len(result_links)} unique links.")
+        write_to_file(result_links, output_filename, output_filetype)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
